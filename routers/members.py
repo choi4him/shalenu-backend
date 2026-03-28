@@ -58,9 +58,9 @@ def list_members(
 
 
 PLAN_MEMBER_LIMITS = {
-    "free": 100,
-    "growth": 500,
-    "community": 2000,
+    "free": 30,
+    "growth": 100,
+    "community": 500,
     "enterprise": None,  # 무제한
 }
 
