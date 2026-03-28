@@ -25,8 +25,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Shalenu API",
-    description="샬레누 — 교회 통합 관리 시스템 API",
+    title="J-SheepFold API",
+    description="교회 통합 관리 시스템 — J-SheepFold",
     version="1.0.0",
     lifespan=lifespan,
 )

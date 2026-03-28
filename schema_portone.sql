@@ -1,5 +1,5 @@
 -- ============================================================
--- Shalenu PortOne 한국 결제 스키마 (ALTER TABLE)
+-- J-SheepFold PortOne 한국 결제 스키마 (ALTER TABLE)
 -- ============================================================
 
 -- shalenu_payment_links 에 PortOne 컬럼 추가

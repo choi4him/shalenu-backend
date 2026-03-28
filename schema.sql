@@ -1,4 +1,4 @@
--- Shalenu 데이터베이스 스키마
+-- J-SheepFold 데이터베이스 스키마
 -- Supabase SQL Editor에서 실행
 
 -- 교회
