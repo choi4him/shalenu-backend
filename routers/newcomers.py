@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from db import get_cursor
 from dependencies import get_current_user
+from plan_check import require_feature
 from schemas.newcomers import NewcomerCreate, NewcomerUpdate, NewcomerStatusUpdate, NewcomerResponse
 
-router = APIRouter(prefix="/api/v1/newcomers", tags=["새가족 관리"])
+router = APIRouter(prefix="/api/v1/newcomers", tags=["새가족 관리"], dependencies=[Depends(require_feature("community"))])
 
 
 COLS = """n.id, n.member_id, n.name, n.phone, n.email, n.gender, n.birth_date,

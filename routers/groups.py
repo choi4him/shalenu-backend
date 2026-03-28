@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from db import get_cursor
 from dependencies import get_current_user
+from plan_check import require_feature
 from schemas.groups import (
     GroupCreate, GroupUpdate, GroupResponse,
     GroupMemberAdd, GroupMemberResponse,
 )
 
-router = APIRouter(prefix="/api/v1/groups", tags=["구역/소그룹 관리"])
+router = APIRouter(prefix="/api/v1/groups", tags=["구역/소그룹 관리"], dependencies=[Depends(require_feature("community"))])
 
 
 def _to_group(row: dict) -> GroupResponse:

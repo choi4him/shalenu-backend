@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from db import get_cursor
 from dependencies import get_current_user
+from plan_check import require_feature
 from schemas.pastoral_notes import PastoralNoteCreate, PastoralNoteUpdate, PastoralNoteResponse
 
-router = APIRouter(prefix="/api/v1/pastoral-notes", tags=["목양 노트"])
+router = APIRouter(prefix="/api/v1/pastoral-notes", tags=["목양 노트"], dependencies=[Depends(require_feature("pastoral"))])
 
 ALLOWED_CATEGORIES = {"visit", "counsel", "prayer", "general"}
 

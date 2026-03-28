@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from db import get_cursor
 from dependencies import get_current_user
+from plan_check import require_feature
 from schemas.finance import (
     TransactionCreate,
     TransactionUpdate,
@@ -14,7 +15,7 @@ from schemas.finance import (
     BudgetItemResponse,
 )
 
-router = APIRouter(prefix="/api/v1/finance", tags=["재정 관리"])
+router = APIRouter(prefix="/api/v1/finance", tags=["재정 관리"], dependencies=[Depends(require_feature("finance"))])
 
 
 # --- 재정 요약 리포트 ---

@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from db import get_cursor
 from dependencies import get_current_user
+from plan_check import require_feature
 from schemas.messages import MessageCreate, MessageResponse
 
-router = APIRouter(prefix="/api/v1/messages", tags=["메시지 발송"])
+router = APIRouter(prefix="/api/v1/messages", tags=["메시지 발송"], dependencies=[Depends(require_feature("pastoral"))])
 
 
 @router.get("", response_model=list[MessageResponse])

@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import get_cursor
 from dependencies import get_current_user
+from plan_check import require_feature
 from schemas.birthdays import BirthdayMember, BirthdaySettingsUpdate, BirthdaySettingsResponse
 
-router = APIRouter(prefix="/api/v1/birthdays", tags=["생일 알림"])
+router = APIRouter(prefix="/api/v1/birthdays", tags=["생일 알림"], dependencies=[Depends(require_feature("pastoral"))])
 
 
 @router.get("/upcoming", response_model=list[BirthdayMember])
