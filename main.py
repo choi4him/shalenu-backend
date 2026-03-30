@@ -7,7 +7,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from db import init_pool, close_pool, get_cursor
+from db import init_pool, close_pool
 from scheduler import start_scheduler, stop_scheduler
 from routers import (
     auth, members, offerings, finance, lookup, churches, users,
@@ -80,17 +80,3 @@ app.include_router(backup.router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-@app.post("/admin/fix-plan")
-def fix_plan(secret: str):
-    """임시 엔드포인트: 테스트교회 플랜 업데이트 (1회 사용 후 삭제 예정)"""
-    if secret != "shalenu-fix-2026":
-        from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="Forbidden")
-    with get_cursor() as cur:
-        cur.execute(
-            "UPDATE shalenu_churches SET plan = 'community' WHERE name = '테스트교회' RETURNING id, name, plan"
-        )
-        rows = cur.fetchall()
-    return {"updated": [dict(r) for r in rows]}
