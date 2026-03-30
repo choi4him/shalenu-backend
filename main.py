@@ -11,7 +11,7 @@ from db import init_pool, close_pool
 from routers import (
     auth, members, offerings, finance, lookup, churches, users,
     worship, groups, attendance, pledges, newcomers,
-    pastoral_notes, messages, birthdays, facilities, payments,
+    pastoral_notes, messages, birthdays, facilities, payments, backup,
 )
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
@@ -71,6 +71,7 @@ app.include_router(messages.router)
 app.include_router(birthdays.router)
 app.include_router(facilities.router)
 app.include_router(payments.router)
+app.include_router(backup.router)
 
 
 @app.get("/health")
