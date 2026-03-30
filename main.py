@@ -8,6 +8,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from db import init_pool, close_pool
+from scheduler import start_scheduler, stop_scheduler
 from routers import (
     auth, members, offerings, finance, lookup, churches, users,
     worship, groups, attendance, pledges, newcomers,
@@ -20,7 +21,9 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_pool()
+    start_scheduler()
     yield
+    stop_scheduler()
     close_pool()
 
 

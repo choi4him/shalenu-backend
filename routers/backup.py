@@ -1,13 +1,19 @@
+import calendar
 import json
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
+from pydantic import BaseModel
+import resend
 
 from db import get_cursor
 from dependencies import get_current_user
 
 router = APIRouter(prefix="/api/v1/backup", tags=["데이터 백업/복구"])
+
+resend.api_key = os.getenv("RESEND_API_KEY", "")
 
 # 직접 church_id 컬럼을 가진 테이블
 DIRECT_TABLES = [
@@ -65,20 +71,29 @@ def _rows_to_list(rows) -> list[dict]:
 
 
 # ────────────────────────────────────────────────
-# 내보내기
+# 공유 헬퍼 (scheduler.py에서도 사용)
 # ────────────────────────────────────────────────
-@router.get("/export")
-def export_backup(current_user: dict = Depends(get_current_user)):
-    church_id = current_user["church_id"]
-    data: dict[str, list] = {}
+def _next_backup_at(frequency: str, from_dt: datetime) -> datetime:
+    """frequency에 따른 다음 백업 일시 계산."""
+    if frequency == "weekly":
+        return from_dt + timedelta(weeks=1)
+    # monthly: 같은 날짜 다음 달 (말일 초과 시 말일로)
+    month = from_dt.month + 1
+    year = from_dt.year
+    if month > 12:
+        month, year = 1, year + 1
+    day = min(from_dt.day, calendar.monthrange(year, month)[1])
+    return from_dt.replace(year=year, month=month, day=day)
 
+
+def _generate_backup(church_id: str) -> tuple[str, str]:
+    """교회 데이터를 JSON 문자열로 직렬화. (json_str, church_name) 반환."""
+    data: dict[str, list] = {}
     with get_cursor() as cur:
-        # 교회명
         cur.execute("SELECT name FROM shalenu_churches WHERE id = %s", (church_id,))
         row = cur.fetchone()
         church_name = row["name"] if row else ""
 
-        # 직접 테이블
         for table in DIRECT_TABLES:
             try:
                 cur.execute(f"SELECT * FROM {table} WHERE church_id = %s", (church_id,))
@@ -86,7 +101,6 @@ def export_backup(current_user: dict = Depends(get_current_user)):
             except Exception:
                 data[table] = []
 
-        # 자식 테이블
         for entry in CHILD_TABLES:
             try:
                 cur.execute(entry["query"], (church_id,))
@@ -100,13 +114,43 @@ def export_backup(current_user: dict = Depends(get_current_user)):
         "church_name": church_name,
         "data": data,
     }
+    return json.dumps(payload, default=_serialize, ensure_ascii=False, indent=2), church_name
 
+
+def _send_backup_email(send_to: str, church_name: str, json_str: str, date_str: str) -> None:
+    """Resend로 백업 JSON을 첨부하여 이메일 발송."""
+    filename = f"jsheepfold-backup-{date_str}.json"
+    resend.Emails.send({
+        "from": "J-SheepFold <backup@jsheepfold.com>",
+        "to": [send_to],
+        "subject": f"[J-SheepFold] 자동 백업 — {church_name} {date_str}",
+        "text": (
+            f"안녕하세요,\n\n"
+            f"{church_name}의 자동 백업 파일을 첨부합니다.\n"
+            f"첨부 파일에서 백업 데이터를 확인하세요.\n\n"
+            f"— J-SheepFold"
+        ),
+        "attachments": [
+            {
+                "filename": filename,
+                "content": list(json_str.encode("utf-8")),
+            }
+        ],
+    })
+
+
+# ────────────────────────────────────────────────
+# 내보내기
+# ────────────────────────────────────────────────
+@router.get("/export")
+def export_backup(current_user: dict = Depends(get_current_user)):
+    church_id = str(current_user["church_id"])
+    json_str, _ = _generate_backup(church_id)
     date_str = datetime.now().strftime("%Y-%m-%d")
     filename = f"jsheepfold-backup-{date_str}.json"
-    content = json.dumps(payload, default=_serialize, ensure_ascii=False, indent=2)
 
     return Response(
-        content=content,
+        content=json_str,
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -123,7 +167,6 @@ async def import_backup(
 ):
     church_id = current_user["church_id"]
 
-    # JSON 파싱
     try:
         raw = await file.read()
         payload = json.loads(raw)
@@ -144,12 +187,9 @@ async def import_backup(
     errors: list[str] = []
 
     with get_cursor() as cur:
-        # 전체 교체 모드
         if replace:
-            # FK 순서를 고려해 자식 → 부모 순으로 삭제
             for entry in reversed(CHILD_TABLES):
                 try:
-                    # 자식 테이블은 church_id가 없으므로 부모 기준 삭제
                     table = entry["table"]
                     if table == "shalenu_offering_items":
                         cur.execute(
@@ -178,11 +218,9 @@ async def import_backup(
                 except Exception as e:
                     errors.append(f"삭제 실패 {table}: {e}")
 
-        # 데이터 삽입
         for table in all_tables:
             rows = backup_data.get(table, [])
             for row in rows:
-                # church_id 강제 설정 (직접 테이블만)
                 if table in DIRECT_TABLES:
                     row["church_id"] = church_id
 
@@ -209,3 +247,107 @@ async def import_backup(
                         errors.append(f"{table}: {e}")
 
     return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
+# ────────────────────────────────────────────────
+# 자동 백업 이메일 설정
+# ────────────────────────────────────────────────
+def _row_to_settings(row) -> dict:
+    d = dict(row)
+    for k in ("last_backup_at", "next_backup_at", "created_at"):
+        if k in d and d[k] is not None:
+            d[k] = d[k].isoformat()
+    return d
+
+
+@router.get("/settings")
+def get_backup_settings(current_user: dict = Depends(get_current_user)):
+    church_id = current_user["church_id"]
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM shalenu_backup_settings WHERE church_id = %s",
+            (church_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return {
+            "is_enabled": False,
+            "frequency": "monthly",
+            "send_to_email": "",
+            "last_backup_at": None,
+            "next_backup_at": None,
+        }
+    return _row_to_settings(row)
+
+
+class BackupSettingsIn(BaseModel):
+    is_enabled: bool
+    frequency: str   # "weekly" | "monthly"
+    send_to_email: str
+
+
+@router.put("/settings")
+def update_backup_settings(
+    body: BackupSettingsIn,
+    current_user: dict = Depends(get_current_user),
+):
+    if body.frequency not in ("weekly", "monthly"):
+        raise HTTPException(status_code=422, detail="frequency는 weekly 또는 monthly 이어야 합니다.")
+
+    church_id = current_user["church_id"]
+    now = datetime.now(timezone.utc)
+    next_at = _next_backup_at(body.frequency, now)
+
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO shalenu_backup_settings
+                (church_id, is_enabled, frequency, send_to_email, next_backup_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (church_id) DO UPDATE
+              SET is_enabled     = EXCLUDED.is_enabled,
+                  frequency      = EXCLUDED.frequency,
+                  send_to_email  = EXCLUDED.send_to_email,
+                  next_backup_at = EXCLUDED.next_backup_at
+            RETURNING *
+            """,
+            (church_id, body.is_enabled, body.frequency, body.send_to_email, next_at),
+        )
+        row = cur.fetchone()
+    return _row_to_settings(row)
+
+
+# ────────────────────────────────────────────────
+# 즉시 백업 이메일 발송
+# ────────────────────────────────────────────────
+@router.post("/send-now")
+def send_backup_now(current_user: dict = Depends(get_current_user)):
+    church_id = str(current_user["church_id"])
+
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT send_to_email FROM shalenu_backup_settings WHERE church_id = %s",
+            (church_id,),
+        )
+        row = cur.fetchone()
+
+    if not row or not row.get("send_to_email"):
+        raise HTTPException(
+            status_code=400,
+            detail="이메일 설정이 없습니다. 먼저 자동 백업 이메일을 설정하세요.",
+        )
+
+    send_to = row["send_to_email"]
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%Y-%m-%d")
+
+    json_str, church_name = _generate_backup(church_id)
+    _send_backup_email(send_to, church_name, json_str, date_str)
+
+    with get_cursor() as cur:
+        cur.execute(
+            "UPDATE shalenu_backup_settings SET last_backup_at = %s WHERE church_id = %s",
+            (now, church_id),
+        )
+
+    return {"status": "sent", "to": send_to}
