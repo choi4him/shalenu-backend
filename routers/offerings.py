@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from db import get_cursor
@@ -17,9 +18,11 @@ router = APIRouter(prefix="/api/v1/offerings", tags=["헌금 관리"])
 
 @router.get("/stats", response_model=OfferingStatsResponse)
 def offering_stats(
-    year: int = Query(..., description="조회 연도"),
+    year: int = Query(None, description="조회 연도 (기본값: 현재 연도)"),
     current_user: dict = Depends(get_current_user),
 ):
+    if year is None:
+        year = datetime.now().year
     church_id = current_user["church_id"]
 
     with get_cursor() as cur:
@@ -68,9 +71,11 @@ def offering_stats(
 
 @router.get("/stats/by-member", response_model=list[MemberOfferingStat])
 def offering_stats_by_member(
-    year: int = Query(..., description="조회 연도"),
+    year: int = Query(None, description="조회 연도 (기본값: 현재 연도)"),
     current_user: dict = Depends(get_current_user),
 ):
+    if year is None:
+        year = datetime.now().year
     church_id = current_user["church_id"]
 
     with get_cursor() as cur:

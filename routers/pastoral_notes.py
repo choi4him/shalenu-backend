@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import Optional
 
 from db import get_cursor
 from dependencies import get_current_user
@@ -12,16 +13,33 @@ ALLOWED_CATEGORIES = {"visit", "counsel", "prayer", "general"}
 
 @router.get("", response_model=list[PastoralNoteResponse])
 def list_pastoral_notes(
-    member_id: str = Query(..., description="교인 ID"),
+    member_id: Optional[str] = Query(None, description="교인 ID (없으면 전체 최근 노트)"),
+    days: Optional[int] = Query(None, description="최근 N일 이내 노트"),
+    limit: Optional[int] = Query(None, ge=1, le=500, description="조회 건수 제한"),
     current_user: dict = Depends(get_current_user),
 ):
     church_id = current_user["church_id"]
     user_id = str(current_user["user_id"])
 
     with get_cursor() as cur:
-        # is_private=true인 노트는 작성자만 조회
+        where_clauses = [
+            "pn.church_id = %s",
+            "(pn.is_private = FALSE OR pn.author_id = %s)",
+        ]
+        params: list = [church_id, user_id]
+
+        if member_id:
+            where_clauses.append("pn.member_id = %s")
+            params.append(member_id)
+        if days:
+            where_clauses.append("pn.created_at >= NOW() - INTERVAL '%s days'")
+            params.append(days)
+
+        where_sql = " AND ".join(where_clauses)
+        limit_sql = f"LIMIT {int(limit)}" if limit else ""
+
         cur.execute(
-            """SELECT pn.id, pn.member_id, pn.author_id, pn.category,
+            f"""SELECT pn.id, pn.member_id, pn.author_id, pn.category,
                       pn.content, pn.is_private, pn.visited_at,
                       pn.created_at, pn.updated_at,
                       m.name AS member_name,
@@ -31,10 +49,10 @@ def list_pastoral_notes(
                JOIN shalenu_members m ON pn.member_id = m.id
                JOIN shalenu_users u ON pn.author_id = u.id
                LEFT JOIN shalenu_members am ON u.member_id = am.id
-               WHERE pn.church_id = %s AND pn.member_id = %s
-                     AND (pn.is_private = FALSE OR pn.author_id = %s)
-               ORDER BY pn.created_at DESC""",
-            (church_id, member_id, user_id),
+               WHERE {where_sql}
+               ORDER BY pn.created_at DESC
+               {limit_sql}""",
+            params,
         )
         rows = cur.fetchall()
 

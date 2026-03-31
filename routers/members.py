@@ -10,11 +10,14 @@ router = APIRouter(prefix="/api/v1/members", tags=["교인 관리"])
 @router.get("")
 def list_members(
     page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
+    size: int = Query(20, ge=1, le=500),
+    limit: int = Query(None, ge=1, le=500, description="size의 별칭"),
     search: str = Query("", description="이름 검색"),
     current_user: dict = Depends(get_current_user),
 ):
     church_id = current_user["church_id"]
+    if limit is not None:
+        size = limit
     offset = (page - 1) * size
 
     with get_cursor() as cur:

@@ -38,18 +38,22 @@ def _get_stripe():
 def list_payment_links(current_user: dict = Depends(get_current_user)):
     church_id = current_user["church_id"]
 
-    with get_cursor() as cur:
-        cur.execute(
-            """SELECT id, title, description, amount, currency, provider,
-                      stripe_price_id, stripe_link_id, stripe_link_url,
-                      portone_link_id, portone_link_url,
-                      is_active, created_at
-               FROM shalenu_payment_links
-               WHERE church_id = %s
-               ORDER BY created_at DESC""",
-            (church_id,),
-        )
-        rows = cur.fetchall()
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                """SELECT id, title, description, amount, currency,
+                          COALESCE(provider, 'stripe') AS provider,
+                          stripe_price_id, stripe_link_id, stripe_link_url,
+                          portone_link_id, portone_link_url,
+                          is_active, created_at
+                   FROM shalenu_payment_links
+                   WHERE church_id = %s
+                   ORDER BY created_at DESC""",
+                (church_id,),
+            )
+            rows = cur.fetchall()
+    except Exception:
+        return []
 
     return [_to_link(r) for r in rows]
 

@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from db import get_cursor
@@ -16,6 +17,40 @@ from schemas.finance import (
 )
 
 router = APIRouter(prefix="/api/v1/finance", tags=["재정 관리"], dependencies=[Depends(require_feature("finance"))])
+
+
+# --- 계좌 조회 ---
+
+
+@router.get("/accounts")
+def list_accounts(current_user: dict = Depends(get_current_user)):
+    church_id = current_user["church_id"]
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                """SELECT id, account_name, account_number, bank_name, account_type,
+                          balance, is_active, created_at
+                   FROM shalenu_accounts
+                   WHERE church_id = %s AND is_active = TRUE
+                   ORDER BY created_at""",
+                (church_id,),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "id": str(r["id"]),
+                "account_name": r["account_name"],
+                "account_number": r.get("account_number"),
+                "bank_name": r.get("bank_name"),
+                "account_type": r.get("account_type"),
+                "balance": int(r.get("balance") or 0),
+                "is_active": r.get("is_active", True),
+                "created_at": str(r["created_at"]),
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
 
 
 # --- 재정 요약 리포트 ---
@@ -154,7 +189,15 @@ def get_budget(
         budget = cur.fetchone()
 
         if not budget:
-            raise HTTPException(status_code=404, detail="해당 연도의 예산을 찾을 수 없습니다")
+            return BudgetResponse(
+                id="",
+                fiscal_year=year,
+                status="draft",
+                total_planned=0,
+                total_actual=0,
+                approved_by=None,
+                items=[],
+            )
 
         budget_id = str(budget["id"])
 
@@ -215,6 +258,9 @@ def list_transactions(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     txn_type: str = Query(None, description="income 또는 expense"),
+    year: int = Query(None, description="연도 필터"),
+    date_from: str = Query(None, description="시작일 (YYYY-MM-DD)"),
+    date_to: str = Query(None, description="종료일 (YYYY-MM-DD)"),
     current_user: dict = Depends(get_current_user),
 ):
     church_id = current_user["church_id"]
@@ -227,6 +273,15 @@ def list_transactions(
         if txn_type:
             where += " AND txn_type = %s"
             params.append(txn_type)
+        if year:
+            where += " AND EXTRACT(YEAR FROM txn_date) = %s"
+            params.append(year)
+        if date_from:
+            where += " AND txn_date >= %s"
+            params.append(date_from)
+        if date_to:
+            where += " AND txn_date <= %s"
+            params.append(date_to)
 
         cur.execute(f"SELECT COUNT(*) AS cnt FROM shalenu_transactions {where}", params)
         total = cur.fetchone()["cnt"]
