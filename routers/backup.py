@@ -263,21 +263,37 @@ def _row_to_settings(row) -> dict:
 @router.get("/settings")
 def get_backup_settings(current_user: dict = Depends(get_current_user)):
     church_id = current_user["church_id"]
-    with get_cursor() as cur:
-        cur.execute(
-            "SELECT * FROM shalenu_backup_settings WHERE church_id = %s",
-            (church_id,),
-        )
-        row = cur.fetchone()
-    if not row:
-        return {
-            "is_enabled": False,
-            "frequency": "monthly",
-            "send_to_email": "",
-            "last_backup_at": None,
-            "next_backup_at": None,
-        }
-    return _row_to_settings(row)
+    _default = {
+        "is_enabled": False,
+        "frequency": "monthly",
+        "send_to_email": "",
+        "last_backup_at": None,
+        "next_backup_at": None,
+    }
+    try:
+        with get_cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS shalenu_backup_settings (
+                    id            SERIAL PRIMARY KEY,
+                    church_id     INTEGER NOT NULL UNIQUE,
+                    is_enabled    BOOLEAN  NOT NULL DEFAULT FALSE,
+                    frequency     VARCHAR(20) NOT NULL DEFAULT 'monthly',
+                    send_to_email VARCHAR(255) NOT NULL DEFAULT '',
+                    last_backup_at  TIMESTAMPTZ,
+                    next_backup_at  TIMESTAMPTZ,
+                    created_at      TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            cur.execute(
+                "SELECT * FROM shalenu_backup_settings WHERE church_id = %s",
+                (church_id,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return _default
+        return _row_to_settings(row)
+    except Exception:
+        return _default
 
 
 class BackupSettingsIn(BaseModel):
