@@ -13,7 +13,7 @@ def get_my_church(current_user: dict = Depends(get_current_user)):
 
     with get_cursor() as cur:
         cur.execute(
-            """SELECT id, name, address, phone, founded_date, denomination, plan, created_at
+            """SELECT id, name, address, phone, founded_date, denomination, plan, currency, created_at
                FROM shalenu_churches
                WHERE id = %s""",
             (church_id,),
@@ -31,6 +31,7 @@ def get_my_church(current_user: dict = Depends(get_current_user)):
         founded_at=row.get("founded_date"),
         denomination=row.get("denomination"),
         plan=row["plan"],
+        currency=row.get("currency", "KRW"),
         created_at=str(row["created_at"]),
     )
 
@@ -45,7 +46,7 @@ def update_my_church(
     # founded_at → founded_date (DB 컬럼명 매핑)
     if "founded_at" in raw:
         raw["founded_date"] = raw.pop("founded_at")
-    allowed = {"name", "address", "phone", "founded_date", "denomination"}
+    allowed = {"name", "address", "phone", "founded_date", "denomination", "currency"}
     updates = {k: v for k, v in raw.items() if k in allowed}
 
     if not updates:
@@ -58,7 +59,7 @@ def update_my_church(
         cur.execute(
             f"""UPDATE shalenu_churches SET {set_clause}
                 WHERE id = %s
-                RETURNING id, name, address, phone, founded_date, denomination, plan, created_at""",
+                RETURNING id, name, address, phone, founded_date, denomination, plan, currency, created_at""",
             values,
         )
         row = cur.fetchone()
@@ -74,5 +75,6 @@ def update_my_church(
         founded_at=row.get("founded_date"),
         denomination=row.get("denomination"),
         plan=row["plan"],
+        currency=row.get("currency", "KRW"),
         created_at=str(row["created_at"]),
     )

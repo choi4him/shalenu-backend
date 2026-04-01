@@ -11,6 +11,7 @@ class ChurchResponse(BaseModel):
     founded_at: Optional[date] = None
     denomination: Optional[str] = None
     plan: str
+    currency: str = "KRW"
     created_at: str
 
 
@@ -20,3 +21,4 @@ class ChurchUpdate(BaseModel):
     phone: Optional[str] = None
     founded_at: Optional[date] = None
     denomination: Optional[str] = None
+    currency: Optional[str] = None
